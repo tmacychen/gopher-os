@@ -122,6 +122,10 @@ const (
 	OpIndexField  = AMLOpcode(0xff + 0x86)
 	OpBankField   = AMLOpcode(0xff + 0x87)
 	OpDataRegion  = AMLOpcode(0xff + 0x88)
+	// Special internal opcodes which are not part of the spec; these are
+	// for internal use by the AML interpreter.
+	OpFieldUnit        = AMLOpcode(0xff + 0xfd)
+	OpMethodInvocation = AMLOpcode(0xff + 0xfe)
 )
 
 // OpIsLocalArg returns true if this opcode represents any of the supported local
