@@ -1,60 +1,9 @@
-package aml
+package parser
 
-import "strings"
-
-// Visitor is a function invoked by the VM for each AML tree entity that matches
-// a particular type. The return value controls whether the children of this
-// entity should also be visited.
-type Visitor func(depth int, obj Entity) (keepRecursing bool)
-
-// EntityType defines the type of entity that visitors should inspect.
-type EntityType uint8
-
-// The list of supported EntityType values. EntityTypeAny works as a wildcard
-// allowing the visitor to inspect all entities in the AML tree.
-const (
-	EntityTypeAny EntityType = iota
-	EntityTypeDevice
-	EntityTypeProcessor
-	EntityTypePowerResource
-	EntityTypeThermalZone
-	EntityTypeMethod
+import (
+	"gopheros/device/acpi/aml/entity"
+	"strings"
 )
-
-// scopeVisit descends a scope hierarchy and invokes visitorFn for each entity
-// that matches entType.
-func scopeVisit(depth int, ent Entity, entType EntityType, visitorFn Visitor) bool {
-	op := ent.getOpcode()
-	switch {
-	case (entType == EntityTypeAny) ||
-		(entType == EntityTypeDevice && op == opDevice) ||
-		(entType == EntityTypeProcessor && op == opProcessor) ||
-		(entType == EntityTypePowerResource && op == opPowerRes) ||
-		(entType == EntityTypeThermalZone && op == opThermalZone) ||
-		(entType == EntityTypeMethod && op == opMethod):
-		// If the visitor returned false we should not visit the children
-		if !visitorFn(depth, ent) {
-			return false
-		}
-
-		// Visit any args that are also entities
-		for _, arg := range ent.getArgs() {
-			if argEnt, isEnt := arg.(Entity); isEnt && !scopeVisit(depth+1, argEnt, entType, visitorFn) {
-				return false
-			}
-		}
-	}
-
-	switch typ := ent.(type) {
-	case ScopeEntity:
-		// If the entity defines a scope we need to visit the child entities.
-		for _, child := range typ.Children() {
-			_ = scopeVisit(depth+1, child, entType, visitorFn)
-		}
-	}
-
-	return true
-}
 
 // scopeResolvePath examines a path expression and attempts to break it down
 // into a parent and child segment. The parent segment is looked up via the
@@ -62,7 +11,7 @@ func scopeVisit(depth int, ent Entity, entType EntityType, visitorFn Visitor) bo
 // parent scope is found then the function returns back the parent entity and
 // the name of the child that should be appended to it. If the expression
 // lookup fails then the function returns nil, "".
-func scopeResolvePath(curScope, rootScope ScopeEntity, expr string) (parent ScopeEntity, name string) {
+func scopeResolvePath(curScope, rootScope entity.Container, expr string) (parent entity.Container, name string) {
 	if len(expr) <= 1 {
 		return nil, ""
 	}
@@ -76,7 +25,7 @@ func scopeResolvePath(curScope, rootScope ScopeEntity, expr string) (parent Scop
 		case '^':
 			lastHatIndex := strings.LastIndexByte(expr, '^')
 			if target := scopeFind(curScope, rootScope, expr[:lastHatIndex+1]); target != nil {
-				return target.(ScopeEntity), expr[lastHatIndex+1:]
+				return target.(entity.Container), expr[lastHatIndex+1:]
 			}
 
 			return nil, ""
@@ -87,7 +36,7 @@ func scopeResolvePath(curScope, rootScope ScopeEntity, expr string) (parent Scop
 
 	// Pattern looks like: \FOO.BAR.BAZ or ^+FOO.BAR.BAZ or FOO.BAR.BAZ
 	if target := scopeFind(curScope, rootScope, expr[:lastDotIndex]); target != nil {
-		return target.(ScopeEntity), expr[lastDotIndex+1:]
+		return target.(entity.Container), expr[lastDotIndex+1:]
 	}
 
 	return nil, ""
@@ -104,7 +53,7 @@ func scopeResolvePath(curScope, rootScope ScopeEntity, expr string) (parent Scop
 // or Parent Prefixes, ‘^’, the search rules do not apply. If the search rules
 // do not apply to a relative namespace path, the namespace object is looked up
 // relative to the current namespace
-func scopeFind(curScope, rootScope ScopeEntity, name string) Entity {
+func scopeFind(curScope, rootScope entity.Container, name string) entity.Entity {
 	nameLen := len(name)
 	if nameLen == 0 {
 		return nil
@@ -159,7 +108,7 @@ func scopeFind(curScope, rootScope ScopeEntity, name string) Entity {
 // to the provided Namespace. If the name contains dots, each segment
 // is used to access a nested namespace. If the path does not point
 // to a NamedObject then lookupRelativeTo returns back nil.
-func scopeFindRelative(ns ScopeEntity, path string) Entity {
+func scopeFindRelative(ns entity.Container, path string) entity.Entity {
 	var matchName string
 matchNextPathSegment:
 	for {
@@ -170,7 +119,7 @@ matchNextPathSegment:
 
 			// Search for a scoped child named "matchName"
 			for _, child := range ns.Children() {
-				childNs, ok := child.(ScopeEntity)
+				childNs, ok := child.(entity.Container)
 				if !ok {
 					continue
 				}

@@ -45,6 +45,12 @@ type Container interface {
 	Last() Entity
 }
 
+type FieldAccessTypeProvider interface {
+	// DefaultAccessType returns the default FieldAccessType for any field unit
+	// defined by this field.
+	DefaultAccessType() FieldAccessType
+}
+
 // Generic describes an entity without a name.
 type Generic struct {
 	_           uint8
@@ -380,22 +386,19 @@ const (
 	FieldAccessAttribRawProcessBytes                    = 0x0f // byteCount contains the number of bytes
 )
 
-type FieldRules struct {
-	AccessType FieldAccessType
-	LockRule   FieldLockRule
-	UpdateRule FieldUpdateRule
-}
-
 // Field is anobject that controls access to a host operating region. It is
 // referenced by a list of FieldUnit objects that appear as siblings of a Field
 // in the same scope.
 type Field struct {
 	Generic
-	FieldRules
 
 	// The region which this field references.
 	RegionName string
 	Region     *Region
+
+	AccessType FieldAccessType
+	LockRule   FieldLockRule
+	UpdateRule FieldUpdateRule
 }
 
 // NewField creates a new AML field entity.
@@ -408,6 +411,33 @@ func NewField(tableHandle uint8) *Field {
 	}
 }
 
+// DefaultAccessType returns the default FieldAccessType for any field unit
+// defined by this field.
+func (ent *Field) DefaultAccessType() FieldAccessType {
+	return ent.AccessType
+}
+
+// SetArg adds an argument value at the specified argument index.
+func (ent *Field) SetArg(argIndex uint8, arg interface{}) bool {
+	var (
+		ok      bool
+		uintVal uint64
+	)
+
+	switch argIndex {
+	case 0:
+		ent.RegionName, ok = arg.(string)
+	case 1:
+		uintVal, ok = arg.(uint64)
+
+		ent.AccessType = FieldAccessType(uintVal & 0xf)        // access type; bits[0:3]
+		ent.LockRule = FieldLockRule((uintVal >> 4) & 0x1)     // lock; bit 4
+		ent.UpdateRule = FieldUpdateRule((uintVal >> 5) & 0x3) // update rule; bits[5:6]
+	}
+
+	return ok
+}
+
 // IndexField is a special field that groups together two field units so a
 // index/data register pattern can be implemented. To write a value to an
 // IndexField, the interpreter must first write the appropriate offset to
@@ -415,13 +445,16 @@ func NewField(tableHandle uint8) *Field {
 // write the actual value to the DataRegister.
 type IndexField struct {
 	Generic
-	FieldRules
 
 	IndexRegName string
 	IndexReg     *FieldUnit
 
 	DataRegName string
 	DataReg     *FieldUnit
+
+	AccessType FieldAccessType
+	LockRule   FieldLockRule
+	UpdateRule FieldUpdateRule
 }
 
 // NewIndexField creates a new AML index field entity.
@@ -434,11 +467,38 @@ func NewIndexField(tableHandle uint8) *IndexField {
 	}
 }
 
+// DefaultAccessType returns the default FieldAccessType for any field unit
+// defined by this field.
+func (ent *IndexField) DefaultAccessType() FieldAccessType {
+	return ent.AccessType
+}
+
+// SetArg adds an argument value at the specified argument index.
+func (ent *IndexField) SetArg(argIndex uint8, arg interface{}) bool {
+	var (
+		ok      bool
+		uintVal uint64
+	)
+
+	switch argIndex {
+	case 0:
+		ent.IndexRegName, ok = arg.(string)
+	case 1:
+		ent.DataRegName, ok = arg.(string)
+	case 2:
+		uintVal, ok = arg.(uint64)
+
+		ent.AccessType = FieldAccessType(uintVal & 0xf)        // access type; bits[0:3]
+		ent.LockRule = FieldLockRule((uintVal >> 4) & 0x1)     // lock; bit 4
+		ent.UpdateRule = FieldUpdateRule((uintVal >> 5) & 0x3) // update rule; bits[5:6]
+	}
+	return ok
+}
+
 // BankField is a special field where a bank register must be used to select
 // the appropriate bank region before accessing its contents.
 type BankField struct {
 	Generic
-	FieldRules
 
 	// The region which this field references.
 	RegionName string
@@ -450,6 +510,10 @@ type BankField struct {
 
 	// The value that needs to be written to the bank field before accessing any field unit.
 	BankFieldUnitValue interface{}
+
+	AccessType FieldAccessType
+	LockRule   FieldLockRule
+	UpdateRule FieldUpdateRule
 }
 
 // NewBankField creates a new AML bank field entity.
@@ -460,6 +524,36 @@ func NewBankField(tableHandle uint8) *BankField {
 			tableHandle: tableHandle,
 		},
 	}
+}
+
+// DefaultAccessType returns the default FieldAccessType for any field unit
+// defined by this field.
+func (ent *BankField) DefaultAccessType() FieldAccessType {
+	return ent.AccessType
+}
+
+// SetArg adds an argument value at the specified argument index.
+func (ent *BankField) SetArg(argIndex uint8, arg interface{}) bool {
+	var (
+		ok      bool
+		uintVal uint64
+	)
+
+	switch argIndex {
+	case 0:
+		ent.RegionName, ok = arg.(string)
+	case 1:
+		ent.BankFieldUnitName, ok = arg.(string)
+	case 2:
+		ent.BankFieldUnitValue, ok = arg, true
+	case 3:
+		uintVal, ok = arg.(uint64)
+
+		ent.AccessType = FieldAccessType(uintVal & 0xf)        // access type; bits[0:3]
+		ent.LockRule = FieldLockRule((uintVal >> 4) & 0x1)     // lock; bit 4
+		ent.UpdateRule = FieldUpdateRule((uintVal >> 5) & 0x3) // update rule; bits[5:6]
+	}
+	return ok
 }
 
 // FieldUnit describes a sub-region inside a parent field.
