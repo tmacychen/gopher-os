@@ -561,8 +561,8 @@ func (p *Parser) parseFieldList(fieldEnt entity.Entity, maxReadOffset uint32) bo
 	)
 
 	// Load default field access rule; it applies to all field units unless
-	// overriden via a directive in the field unit list
-	if accessProvider, ok := fieldEnt.(entity.FieldAccessTypeProvider); ok {
+	// overridden via a directive in the field unit list
+	if accessProvider, isProvider := fieldEnt.(entity.FieldAccessTypeProvider); isProvider {
 		accessType = accessProvider.DefaultAccessType()
 	} else {
 		// not a field entity

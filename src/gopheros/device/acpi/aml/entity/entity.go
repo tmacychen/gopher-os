@@ -45,6 +45,7 @@ type Container interface {
 	Last() Entity
 }
 
+// FieldAccessTypeProvider is an interface implemented by all field entities.
 type FieldAccessTypeProvider interface {
 	// DefaultAccessType returns the default FieldAccessType for any field unit
 	// defined by this field.
@@ -618,7 +619,7 @@ func NewReference(tableHandle uint8, target string) *Reference {
 	}
 }
 
-// Method descirbes an invocable AML method.
+// Method describes an invocable AML method.
 type Method struct {
 	Scope
 

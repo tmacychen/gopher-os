@@ -99,7 +99,6 @@ const (
 	opArgTermList
 	opArgTermObj
 	opArgByteList
-	opArgPackage
 	opArgString
 	opArgByteData
 	opArgWord
