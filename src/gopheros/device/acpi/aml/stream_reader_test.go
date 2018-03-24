@@ -1,7 +1,7 @@
-package parser
+package aml
 
 import (
-	"io"
+	"math"
 	"testing"
 	"unsafe"
 )
@@ -20,6 +20,14 @@ func TestAMLStreamReader(t *testing.T) {
 			0,
 		)
 
+		if err := r.SetPkgEnd(uint32(len(buf) + 1)); err != errInvalidPkgEnd {
+			t.Fatalf("expected to get errInvalidPkgEnd; got: %v", err)
+		}
+
+		if err := r.SetPkgEnd(uint32(len(buf))); err != nil {
+			t.Fatal(err)
+		}
+
 		if r.EOF() {
 			t.Fatal("unexpected EOF")
 		}
@@ -28,7 +36,7 @@ func TestAMLStreamReader(t *testing.T) {
 			t.Fatalf("expected errInvalidUnreadByte; got %v", err)
 		}
 
-		if _, err := r.LastByte(); err != io.EOF {
+		if _, err := r.LastByte(); err != errReadPastPkgEnd {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -60,10 +68,17 @@ func TestAMLStreamReader(t *testing.T) {
 			}
 		}
 
-		if _, err := r.PeekByte(); err != io.EOF {
+		if err := r.UnreadByte(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if _, err := r.ReadByte(); err != io.EOF {
+
+		// Set offset past EOF; reader should cap the offset to len(buf)
+		r.SetOffset(math.MaxUint32)
+
+		if _, err := r.PeekByte(); err != errReadPastPkgEnd {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, err := r.ReadByte(); err != errReadPastPkgEnd {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		exp := byte(len(buf) - 1)
@@ -92,6 +107,25 @@ func TestAMLStreamReader(t *testing.T) {
 		exp := byte(8)
 		if next, _ := r.ReadByte(); next != exp {
 			t.Fatalf("expected ReadByte to return %d; got %d", exp, next)
+		}
+	})
+
+	t.Run("ptr to data", func(t *testing.T) {
+		var r amlStreamReader
+		r.Init(
+			uintptr(unsafe.Pointer(&buf[0])),
+			uint32(len(buf)),
+			8,
+		)
+
+		if r.EOF() {
+			t.Fatal("unexpected EOF")
+		}
+
+		r.SetOffset(2)
+		ptr := r.DataPtr()
+		if got := *((*byte)(unsafe.Pointer(ptr))); got != buf[2] {
+			t.Fatal("expected DataPtr to return a pointer to buf[2]")
 		}
 	})
 }

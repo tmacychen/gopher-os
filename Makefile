@@ -11,9 +11,13 @@ iso_target := $(BUILD_DIR)/kernel-$(ARCH).iso
 # this: make run GO=go1.8
 GO ?= go
 
-# Prepend build path to GOPATH so the compiled packages and linter dependencies 
+# Prepend build path to GOPATH so the compiled packages and linter dependencies
 # end up inside the build folder
 GOPATH := $(BUILD_ABS_DIR):$(shell pwd):$(GOPATH)
+
+FUZZ_PKG_LIST := src/gopheros/device/acpi/aml
+# To append more entries to the above list use the following syntax
+# FUZZ_PKG_LIST += path-to-pkg
 
 ifeq ($(OS), Linux)
 export SHELL := /bin/bash -o pipefail
@@ -57,11 +61,13 @@ go.o:
 	    -e "1s|^|export GOOS=$(GOOS)\n|" \
 	    -e "1s|^|export GOARCH=$(GOARCH)\n|" \
 	    -e "1s|^|export GOROOT=$(GOROOT)\n|" \
-	    -e "1s|^|WORK='$(BUILD_ABS_DIR)'\n|" \
+	    -e "1s|^|export CGO_ENABLED=0\n|" \
 	    -e "1s|^|alias pack='$(GO) tool pack'\n|" \
 	    -e "/^mv/d" \
+	    -e "/\/buildid/d" \
 	    -e "s|-extld|-tmpdir='$(BUILD_ABS_DIR)' -linkmode=external -extldflags='-nostartfiles -nodefaultlibs -nostdlib -r' -extld|g" \
-	    | sh 2>&1 | sed -e "s/^/  | /g"
+	    -e 's|$$WORK|$(BUILD_ABS_DIR)|g' \
+            | sh 2>&1 |  sed -e "s/^/  | /g"
 
 	@# build/go.o is a elf32 object file but all go symbols are unexported. Our
 	@# asm entrypoint code needs to know the address to 'main.main' so we use
@@ -100,7 +106,7 @@ $(BUILD_DIR)/go_asm_offsets.inc:
 	@mkdir -p $(BUILD_DIR)
 
 	@echo "[tools:offsets] calculating OS/arch-specific offsets for g, m and stack structs"
-	@GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
+	@GOROOT=$(GOROOT) GOPATH=$(GOPATH) $(GO) run tools/offsets/offsets.go -target-os $(GOOS) -target-arch $(GOARCH) -go-binary $(GO) -out $@
 
 $(BUILD_DIR)/arch/$(ARCH)/asm/%.o: src/arch/$(ARCH)/asm/%.s
 	@mkdir -p $(shell dirname $@)
@@ -143,7 +149,7 @@ run-vbox: iso
 	VBoxManage storageattach $(VBOX_VM_NAME) --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive \
 		--medium $(iso_target) || true
 	VBoxManage startvm $(VBOX_VM_NAME)
-	
+
 # When building gdb target disable optimizations (-N) and inlining (l) of Go code
 gdb: GC_FLAGS += -N -l
 gdb: iso
@@ -179,17 +185,34 @@ lint: lint-check-deps
 		--enable=unconvert \
 		--enable=varcheck \
 		--enable=golint \
+		--enable=gofmt \
 		--deadline 300s \
 		--exclude 'possible misuse of unsafe.Pointer' \
 		--exclude 'x \^ 0 always equals x' \
 		src/...
 
 lint-check-deps:
+	@echo [go get] installing linter dependencies
 	@GOPATH=$(GOPATH) $(GO) get -u -t gopkg.in/alecthomas/gometalinter.v1
 	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) gometalinter.v1 --install >/dev/null
 
 test:
 	GOPATH=$(GOPATH) $(GO) test -cover gopheros/...
+
+fuzz-deps:
+	@mkdir -p $(BUILD_DIR)/fuzz
+	@echo [go get] installing go-fuzz dependencies
+	@GOPATH=$(GOPATH) $(GO) get -u github.com/dvyukov/go-fuzz/...
+
+%.fuzzpkg: %
+	@echo [go-fuzz] fuzzing: $<
+	@GOPATH=$(GOPATH) PATH=$(BUILD_ABS_DIR)/bin:$(PATH) go-fuzz-build -o $(BUILD_ABS_DIR)/fuzz/$(subst /,_,$<).zip $(subst src/,,$<)
+	@mkdir -p $(BUILD_ABS_DIR)/fuzz/corpus/$(subst /,_,$<)/corpus
+	@echo [go-fuzz] + grepping for corpus file hints in $<
+	@grep "go-fuzz-corpus+=" $</*fuzz.go | cut -d'=' -f2 | tr '\n' '\0' | xargs -0 -I@ sh -c 'export F="@"; cp $$F $(BUILD_ABS_DIR)/fuzz/corpus/$(subst /,_,$<)/corpus/ && echo "[go fuzz]   + copy extra corpus file: $$F"'
+	@go-fuzz -bin=$(BUILD_ABS_DIR)/fuzz/$(subst /,_,$<).zip -workdir=$(BUILD_ABS_DIR)/fuzz/corpus/$(subst /,_,$<) 2>&1 | sed -e "s/^/  | /g"
+
+test-fuzz: fuzz-deps $(addsuffix .fuzzpkg,$(FUZZ_PKG_LIST))
 
 collect-coverage:
 	GOPATH=$(GOPATH) sh coverage.sh
